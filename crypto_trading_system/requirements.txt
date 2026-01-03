@@ -1,0 +1,9 @@
+ccxt
+pandas
+numpy
+ta
+openai
+python-dotenv
+matplotlib
+requests
+yfinance
