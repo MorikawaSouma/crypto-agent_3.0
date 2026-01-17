@@ -64,8 +64,18 @@ class MarketDataManager:
         """
         try:
             since = self.exchange.parse8601(start_time)
+            if since is None:
+                # Fallback to pandas parsing
+                since = int(pd.Timestamp(start_time).timestamp() * 1000)
+                
             end_ts = self.exchange.parse8601(end_time)
+            if end_ts is None:
+                end_ts = int(pd.Timestamp(end_time).timestamp() * 1000)
             
+            if since is None or end_ts is None:
+                print(f"Error parsing dates: {start_time} -> {since}, {end_time} -> {end_ts}")
+                return pd.DataFrame()
+
             all_ohlcv = []
             while since < end_ts:
                 # Calculate limit based on timeframe to optimize calls, but max is usually 1000 for Binance
@@ -91,6 +101,10 @@ class MarketDataManager:
                 if last_of_batch >= end_ts:
                     break
             
+            if not all_ohlcv:
+                # print(f"Warning: No OHLCV fetched for {symbol} in range.")
+                return pd.DataFrame()
+
             df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df.set_index('timestamp', inplace=True)
@@ -98,6 +112,10 @@ class MarketDataManager:
             # Filter exact range
             mask = (df.index >= pd.to_datetime(start_time)) & (df.index <= pd.to_datetime(end_time))
             return df.loc[mask]
+        except Exception as e:
+            # print(f"Error fetching historical data for {symbol}: {e}")
+            return pd.DataFrame()
+
             
         except Exception as e:
             print(f"Error fetching historical data for {symbol}: {e}")
@@ -115,11 +133,18 @@ class MarketDataManager:
         for symbol in symbols:
             # Check if we should fetch specific range or latest candles
             if Config.START_TIME and Config.END_TIME:
-                print(f"Fetching historical data for {symbol} ({Config.START_TIME} to {Config.END_TIME})...")
-                df = self.get_historical_data(symbol, Config.START_TIME, Config.END_TIME, timeframe)
+                try:
+                    start_dt = pd.to_datetime(Config.START_TIME)
+                    fetch_start_dt = start_dt - pd.Timedelta(days=getattr(Config, "WARMUP_DAYS", 30))
+                    fetch_start_str = fetch_start_dt.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    fetch_start_str = Config.START_TIME
+                print(f"Fetching historical data for {symbol} ({fetch_start_str} to {Config.END_TIME})...")
+                df = self.get_historical_data(symbol, fetch_start_str, Config.END_TIME, timeframe)
             else:
-                # print(f"Fetching latest {limit} candles for {symbol}...")
-                df = self.fetch_ohlcv(symbol, timeframe, limit)
+                extra = getattr(Config, "LATEST_WARMUP_EXTRA", 200)
+                eff_limit = int(limit) + int(extra)
+                df = self.fetch_ohlcv(symbol, timeframe, eff_limit)
                 
             if not df.empty:
                 data[symbol] = df

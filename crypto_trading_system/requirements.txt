@@ -7,3 +7,8 @@ python-dotenv
 matplotlib
 requests
 yfinance
+scikit-learn
+torch
+chromadb
+lightgbm
+backtrader

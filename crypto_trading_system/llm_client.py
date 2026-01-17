@@ -11,12 +11,15 @@ class DeepSeekClient:
         self.model = Config.MODEL_NAME
         self.mock = mock
         
-    def query(self, system_prompt: str, user_prompt: str, temperature: float = 0.7) -> str:
+    def query(self, system_prompt: str, user_prompt: str, temperature: float = None) -> str:
         """
         Send a query to the DeepSeek model using requests
         """
         if self.mock:
             return self._get_mock_response(system_prompt)
+            
+        # Use provided temperature or default to 0.7
+        final_temp = temperature if temperature is not None else 0.7
 
         # Construct endpoint
         endpoint = f"{self.base_url}/chat/completions"
@@ -29,7 +32,7 @@ class DeepSeekClient:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": temperature,
+            "temperature": final_temp,
             "max_tokens": 4096,
             "stream": False
         }

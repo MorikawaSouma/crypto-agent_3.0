@@ -27,23 +27,35 @@ class FeatureEngineer:
         # SMA / EMA
         df['SMA_20'] = SMAIndicator(close=df['close'], window=20).sma_indicator()
         df['SMA_50'] = SMAIndicator(close=df['close'], window=50).sma_indicator()
-        df['SMA_200'] = SMAIndicator(close=df['close'], window=200).sma_indicator()
+        if len(df) >= 200:
+            df['SMA_200'] = SMAIndicator(close=df['close'], window=200).sma_indicator()
         
         df['EMA_12'] = EMAIndicator(close=df['close'], window=12).ema_indicator()
         df['EMA_26'] = EMAIndicator(close=df['close'], window=26).ema_indicator()
         
-        # ADX
-        adx = ADXIndicator(high=df['high'], low=df['low'], close=df['close'])
-        df['ADX'] = adx.adx()
-        df['ADX_pos'] = adx.adx_pos()
-        df['ADX_neg'] = adx.adx_neg()
+        # ADX (robust to short series)
+        try:
+            adx = ADXIndicator(high=df['high'], low=df['low'], close=df['close'])
+            df['ADX'] = adx.adx()
+            df['ADX_pos'] = adx.adx_pos()
+            df['ADX_neg'] = adx.adx_neg()
+        except Exception:
+            df['ADX'] = np.nan
+            df['ADX_pos'] = np.nan
+            df['ADX_neg'] = np.nan
         
-        # Ichimoku
-        ichimoku = IchimokuIndicator(high=df['high'], low=df['low'])
-        df['Ichimoku_a'] = ichimoku.ichimoku_a()
-        df['Ichimoku_b'] = ichimoku.ichimoku_b()
-        df['Ichimoku_base_line'] = ichimoku.ichimoku_base_line()
-        df['Ichimoku_conversion_line'] = ichimoku.ichimoku_conversion_line()
+        # Ichimoku (robust to short series)
+        try:
+            ichimoku = IchimokuIndicator(high=df['high'], low=df['low'])
+            df['Ichimoku_a'] = ichimoku.ichimoku_a()
+            df['Ichimoku_b'] = ichimoku.ichimoku_b()
+            df['Ichimoku_base_line'] = ichimoku.ichimoku_base_line()
+            df['Ichimoku_conversion_line'] = ichimoku.ichimoku_conversion_line()
+        except Exception:
+            df['Ichimoku_a'] = np.nan
+            df['Ichimoku_b'] = np.nan
+            df['Ichimoku_base_line'] = np.nan
+            df['Ichimoku_conversion_line'] = np.nan
         
         # --- Momentum ---
         # RSI
@@ -68,13 +80,20 @@ class FeatureEngineer:
         df['BB_mid'] = bb.bollinger_mavg()
         df['BB_width'] = bb.bollinger_wband()
         
-        # ATR
-        df['ATR'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
+        # ATR (robust)
+        try:
+            df['ATR'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
+        except Exception:
+            df['ATR'] = np.nan
         
         # Keltner Channel
-        kc = KeltnerChannel(high=df['high'], low=df['low'], close=df['close'])
-        df['KC_high'] = kc.keltner_channel_hband()
-        df['KC_low'] = kc.keltner_channel_lband()
+        try:
+            kc = KeltnerChannel(high=df['high'], low=df['low'], close=df['close'])
+            df['KC_high'] = kc.keltner_channel_hband()
+            df['KC_low'] = kc.keltner_channel_lband()
+        except Exception:
+            df['KC_high'] = np.nan
+            df['KC_low'] = np.nan
         
         # --- Volume ---
         # OBV
