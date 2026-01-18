@@ -40,8 +40,14 @@ class Config:
    
    
     MODEL_NAME = "deepseek-chat" # or deepseek-reasoner
+
+
+
     AGENT_MODE = "debate"  # "voting" or "debate"
     DEBATE_ROUNDS = 3
+    
+    
+    
     
     WARMUP_DAYS = 30          # extra days to fetch before START_TIME
     LATEST_WARMUP_EXTRA = 200 # extra candles to fetch for latest mode

@@ -10,6 +10,9 @@ class BaseAgent(ABC):
         self.llm = llm_client
         self.memory = MemoryManager(name)
         
+
+
+        
     def reset_memory(self):
         """Clear agent's memory"""
         self.memory.clear_memory()

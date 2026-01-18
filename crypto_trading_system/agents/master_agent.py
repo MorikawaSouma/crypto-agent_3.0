@@ -18,55 +18,59 @@ if os.path.isdir(extra_lib) and extra_lib not in sys.path:
     sys.path.append(extra_lib)
 try:
     import torch
+    import torch.nn.functional as F
     TORCH_AVAILABLE = True
 except Exception:
     TORCH_AVAILABLE = False
 
-class TorchTransformerWeightingModel:
+class TorchMLPWeightingModel:
     def __init__(self, input_dim: int, n_agents: int, lr: float):
         self.input_dim = input_dim
         self.n_agents = n_agents
         self.agent_order = ["buffett", "soros", "dalio", "simons", "sentiment"]
+        hidden_dim = max(16, min(input_dim * 2, 128))
         self.temperature = float(np.sqrt(input_dim))
-        self.q = torch.nn.Linear(input_dim, input_dim, bias=False)
-        self.k = torch.nn.Parameter(torch.randn(n_agents, input_dim) * 0.1)
-        self.opt = torch.optim.Adam(list(self.q.parameters()) + [self.k], lr=lr)
-    def _softmax_np(self, z):
-        z = np.array(z, dtype=float)
-        z = z - np.max(z)
-        e = np.exp(z)
-        s = e / np.sum(e) if np.sum(e) > 0 else np.ones_like(z) / len(z)
-        return s
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Linear(hidden_dim, n_agents)
+        )
+        self.opt = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.opt, mode="min", factor=0.5, patience=10, verbose=False
+        )
+
     def predict(self, x: np.ndarray) -> np.ndarray:
-        xt = torch.tensor(x, dtype=torch.float32).unsqueeze(0)
-        qv = self.q(xt).squeeze(0)
-        scores = torch.matmul(self.k, qv) / self.temperature
-        return self._softmax_np(scores.detach().cpu().numpy())
+        self.model.eval()
+        with torch.no_grad():
+            xt = torch.tensor(x, dtype=torch.float32).unsqueeze(0)
+            scores = self.model(xt).squeeze(0) / self.temperature
+            w = F.softmax(scores, dim=0)
+            return w.detach().cpu().numpy()
+
     def save(self, path: str):
         if not TORCH_AVAILABLE:
             return
         state = {
-            "q": self.q.state_dict(),
-            "k": self.k.detach().cpu().numpy()
+            "model": self.model.state_dict()
         }
         torch.save(state, path)
+
     def load(self, path: str):
         if not TORCH_AVAILABLE:
             return
         if not os.path.isfile(path):
             return
         state = torch.load(path, map_location="cpu")
-        q_state = state.get("q")
-        k_val = state.get("k")
-        if q_state is not None:
-            self.q.load_state_dict(q_state)
-        if k_val is not None:
-            k_tensor = torch.tensor(k_val, dtype=torch.float32)
-            if k_tensor.shape == self.k.data.shape:
-                self.k.data = k_tensor
+        model_state = state.get("model")
+        if model_state is None:
+            return
+        self.model.load_state_dict(model_state)
+
     def update(self, x: np.ndarray, agent_details: Dict[str, Any], system_action: str, outcome: str):
         xt = torch.tensor(x, dtype=torch.float32).unsqueeze(0)
-        qv = self.q(xt).squeeze(0)
+        scores = self.model(xt).squeeze(0) / self.temperature
+        w = F.softmax(scores, dim=0)
         agree = []
         for i, name in enumerate(self.agent_order):
             a = agent_details.get(name, {})
@@ -77,8 +81,7 @@ class TorchTransformerWeightingModel:
                 agree.append(i)
         if len(agree) == 0:
             return
-        scores = torch.matmul(self.k, qv) / self.temperature
-        sel = scores[agree]
+        sel = w[agree]
         if outcome == "profit":
             loss = -sel.mean()
         elif outcome == "loss":
@@ -88,6 +91,10 @@ class TorchTransformerWeightingModel:
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()
+        try:
+            self.scheduler.step(float(loss.detach().cpu().item()))
+        except Exception:
+            pass
 
 class MasterAgent(BaseAgent):
     def __init__(self, llm_client: DeepSeekClient, mode: Optional[str] = None):
@@ -307,8 +314,8 @@ class MasterAgent(BaseAgent):
         x = np.array([b_score, s_score, d_score, sim_score, sent_score, vix, vol30, fg] + c_stats + r_stats + v_stats, dtype=float)
         if self.weight_model is None:
             if not TORCH_AVAILABLE:
-                raise RuntimeError("PyTorch is required for TorchTransformerWeightingModel but is not available")
-            self.weight_model = TorchTransformerWeightingModel(input_dim=len(x), n_agents=5, lr=float(getattr(Config, "TRANSFORMER_LR", 0.001)))
+                raise RuntimeError("PyTorch is required for the dynamic weighting model but is not available")
+            self.weight_model = TorchMLPWeightingModel(input_dim=len(x), n_agents=5, lr=float(getattr(Config, "TRANSFORMER_LR", 0.001)))
             path = getattr(Config, "WEIGHT_MODEL_PATH", None)
             if path and isinstance(path, str):
                 try:
@@ -376,8 +383,7 @@ class MasterAgent(BaseAgent):
                 self._inject_context(data_map, combined_context)
             
             results = self._run_parallel(data_map)
-            
-            # Print discussion content for this round
+   
             print(f"--- Round {r} Discussion ---")
             for name, res in results.items():
                 reasoning = res.get('reasoning', 'No reasoning provided')

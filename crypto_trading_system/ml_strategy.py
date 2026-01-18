@@ -74,28 +74,30 @@ class LightGBMStrategy:
             print("No training data available.")
             return
         
-        # Identify feature columns (exclude target, symbol, date, close)
         self.features = [c for c in df.columns if c not in ['target', 'symbol', 'date', 'close']]
-        
+        if not self.features:
+            print("No feature columns for LightGBM. Skipping training.")
+            return
         X = df[self.features]
         y = df['target']
-        
-        # Time-series split (Train on first 80%, Val on last 20%)
         dates = df['date'].unique()
-        if len(dates) < 10:
-             # Fallback for very short tests
-             split_date = dates[int(len(dates) * 0.8)]
+        if len(dates) == 0:
+            print("No dates available for LightGBM training.")
+            return
+        if len(dates) == 1:
+            if len(df) < 2:
+                print("Not enough samples for LightGBM training.")
+                return
+            split_date = df['date'].iloc[-1]
         else:
-             split_date = dates[int(len(dates) * 0.8)]
-        
+            split_date = dates[int(len(dates) * 0.8)]
         train_mask = df['date'] < split_date
         val_mask = df['date'] >= split_date
-        
         X_train, y_train = X[train_mask], y[train_mask]
         X_val, y_val = X[val_mask], y[val_mask]
-        
-        # print(f"Training on {len(X_train)} samples, Validating on {len(X_val)} samples.")
-        
+        if X_train.empty or X_val.empty:
+            print("Train/validation split produced empty dataset. Skipping LightGBM training.")
+            return
         train_data = lgb.Dataset(X_train, label=y_train)
         val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
         
